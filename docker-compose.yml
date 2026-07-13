@@ -28,14 +28,12 @@ services:
     container_name: akari-dashboard
     restart: unless-stopped
     environment:
-      - HOST_DOWNLOAD_DIR=/home/kazuha/Downloads
-      - DISPLAY=${DISPLAY:-:0}
+      - HOST_DOWNLOAD_DIR=./downloads
     ports:
       - "5000:5000"                             # ← http://localhost:5000
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./data:/app/data
-      - /tmp/.X11-unix:/tmp/.X11-unix           # X11 socket for xdg-open
     depends_on:
       - aria2
     networks:
@@ -58,7 +56,7 @@ services:
       - LISTEN_PORT=6888
       - DHT_LISTEN_PORT=6888
     volumes:
-      - /home/kazuha/Videos:/downloads   # ← Downloaded anime files land here
+      - ./downloads:/downloads   # ← Downloaded anime files land here
       - ./data/aria2-config:/config        # aria2c settings persistence
     ports:
       - "6800:6800"                        # aria2c JSON-RPC port

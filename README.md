@@ -58,7 +58,7 @@ akari/
 ```
 
 **Where do my downloads go?**
-Downloads are mapped directly to your host's `~/Downloads` folder by default, and sorted into per-anime subfolders.
+Downloads are mapped directly to the `./downloads` folder inside the `Akari` directory by default, and sorted into per-anime subfolders. You can customize this path in `docker-compose.yml`.
 
 ---
 
