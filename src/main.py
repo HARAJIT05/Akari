@@ -261,8 +261,14 @@ def check_anime(
 
     logger.info(f"  → latest={latest_ep}, current={current_ep or 'none'}")
 
+    current_state = state.get_state(name)
+    current_status = current_state.get("status") if current_state else None
+    
+    # If the latest episode is less than or equal to what we have tracked,
+    # we usually skip. But if it errored, we should retry!
     if current_ep is not None and latest_ep <= current_ep:
-        return False
+        if current_status != "error":
+            return False
 
     # Skip if already downloading this episode
     current_state = state.get_state(name)
