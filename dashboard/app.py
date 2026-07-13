@@ -493,13 +493,18 @@ def api_open_folder(body: OpenFolderBody):
     opened = False
     if folder:
         try:
-            # Works only if DISPLAY is available (non-headless host)
-            subprocess.Popen(
-                ["xdg-open", folder],
-                env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            import platform
+            if platform.system() == "Windows":
+                os.startfile(folder)
+            elif platform.system() == "Darwin":
+                subprocess.Popen(["open", folder], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                subprocess.Popen(
+                    ["xdg-open", folder],
+                    env={**os.environ, "DISPLAY": os.environ.get("DISPLAY", ":0")},
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             opened = True
         except Exception:
             pass
