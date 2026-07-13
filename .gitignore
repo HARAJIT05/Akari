@@ -1,6 +1,9 @@
 # Data directory (contains downloads, state, and aria2c config — keep out of git)
 data/
 
+# Downloads directory (large media files — never commit to git!)
+downloads/
+
 # User Configuration (Never commit secrets!)
 config.yaml
 
