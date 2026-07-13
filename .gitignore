@@ -1,0 +1,25 @@
+# Data directory (contains downloads, state, and aria2c config — keep out of git)
+data/
+
+# User Configuration (Never commit secrets!)
+config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db

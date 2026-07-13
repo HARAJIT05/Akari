@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Akari Dashboard</title>
+  <meta name="description" content="Autonomous anime downloader — manage your watchlist, monitor downloads, and configure settings.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Sidebar ────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">🤖</span>
+      <span>Akari</span>
+    </div>
+
+    <nav>
+      <div class="nav-item active" data-tab="overview" onclick="setTab('overview')">
+        <span class="nav-icon">🏠</span><span>Overview</span>
+      </div>
+      <div class="nav-item" data-tab="anime" onclick="setTab('anime')">
+        <span class="nav-icon">📺</span><span>Anime</span>
+      </div>
+      <div class="nav-item" data-tab="downloads" onclick="setTab('downloads')">
+        <span class="nav-icon">⬇️</span><span>Downloads</span>
+      </div>
+      <div class="nav-item" data-tab="history" onclick="setTab('history')">
+        <span class="nav-icon">📁</span><span>History</span>
+      </div>
+      <div class="nav-item" data-tab="settings" onclick="setTab('settings')">
+        <span class="nav-icon">⚙️</span><span>Settings</span>
+      </div>
+      <div class="nav-item" data-tab="telegram" onclick="setTab('telegram')">
+        <span class="nav-icon">📱</span><span>Telegram</span>
+      </div>
+      <div class="nav-item" data-tab="logs" onclick="setTab('logs')">
+        <span class="nav-icon">📋</span><span>Logs</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div>Akari v1.0</div>
+      <div style="margin-top:4px">Powered by Nyaa.si</div>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Header -->
+    <div class="header">
+      <h1 id="page-title">🏠 Overview</h1>
+      <div class="header-actions">
+        <div class="bot-status">
+          <div class="status-dot"></div>
+          <span>Bot Running</span>
+        </div>
+        <button class="btn btn-primary" onclick="checkNow()">⚡ Check Now</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+
+      <!-- ── Overview Tab ─────────────────────────────── -->
+      <div id="tab-overview" class="tab-pane active">
+
+        <!-- Stats -->
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon">📺</div>
+            <div class="stat-label">Tracked Anime</div>
+            <div class="stat-value gradient" id="stat-anime">–</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⬇️</div>
+            <div class="stat-label">Downloading</div>
+            <div class="stat-value" id="stat-dl">–</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">✅</div>
+            <div class="stat-label">Completed</div>
+            <div class="stat-value" id="stat-seed">–</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⏱️</div>
+            <div class="stat-label">Poll Interval</div>
+            <div class="stat-value" id="stat-poll">–</div>
+          </div>
+        </div>
+
+        <!-- Anime Grid -->
+        <div class="section-header">
+          <div>
+            <div class="section-title">Watchlist</div>
+            <div class="section-sub">Anime currently being tracked</div>
+          </div>
+          <button class="btn btn-ghost" onclick="setTab('anime')">Manage →</button>
+        </div>
+
+        <div class="anime-grid" id="overview-grid">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── Anime Tab ─────────────────────────────────── -->
+      <div id="tab-anime" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Anime Watchlist</div>
+            <div class="section-sub">Add, edit, or remove tracked anime</div>
+          </div>
+          <button class="btn btn-primary" onclick="openAddAnime()">➕ Add Anime</button>
+        </div>
+
+        <div class="anime-list" id="anime-list">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── Downloads Tab ─────────────────────────────── -->
+      <div id="tab-downloads" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Active Downloads</div>
+            <div class="section-sub">Torrents managed by the bot (via aria2c)</div>
+          </div>
+          <button class="btn btn-ghost" onclick="loadDownloads()">🔄 Refresh</button>
+        </div>
+
+        <div id="downloads-list">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── History Tab ──────────────────────────────────── -->
+      <div id="tab-history" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Download History</div>
+            <div class="section-sub">All tracked episodes and their file locations</div>
+          </div>
+          <button class="btn btn-ghost" onclick="loadHistory()">🔄 Refresh</button>
+        </div>
+        <div id="history-list">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- ── Settings Tab ──────────────────────────────── -->
+      <div id="tab-settings" class="tab-pane">
+        <div style="max-width:640px">
+          <div class="section-title" style="margin-bottom:20px">⚙️ Bot Settings</div>
+
+          <!-- aria2c -->
+          <div class="card" style="margin-bottom:20px">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.9rem">📡 aria2c Connection</div>
+            <div class="settings-grid">
+              <div class="form-group">
+                <label for="a2-host">Host</label>
+                <input class="input" id="a2-host" placeholder="http://aria2">
+              </div>
+              <div class="form-group">
+                <label for="a2-port">RPC Port</label>
+                <input class="input" id="a2-port" type="number" placeholder="6800">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="a2-secret">RPC Secret Token</label>
+              <input class="input" id="a2-secret" type="password"
+                     placeholder="akarisecret" style="max-width:320px">
+              <small style="color:var(--text-faint);font-size:.75rem">
+                Must match <code>RPC_SECRET</code> in docker-compose.yml
+              </small>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-test-a2" onclick="testAria2()">
+              🔌 Test Connection
+            </button>
+          </div>
+
+          <!-- Download settings -->
+          <div class="card" style="margin-bottom:20px">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.9rem">📁 Download Settings</div>
+            <div class="form-group">
+              <label for="dl-path">Save Path (inside container)</label>
+              <input class="input" id="dl-path" placeholder="/downloads" style="max-width:320px">
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:20px">
+            <div style="font-weight:700;margin-bottom:16px;font-size:.9rem">⏱ Poll Settings</div>
+            <div class="form-group">
+              <label for="poll-mins">Check Interval (minutes)</label>
+              <input class="input" id="poll-mins" type="number" min="5" max="1440" placeholder="15"
+                     style="max-width:160px">
+            </div>
+
+            <div class="toggle-wrap">
+              <div>
+                <div class="toggle-label">Trusted Uploaders Only</div>
+                <div class="toggle-sub">Only download from Nyaa-verified "trusted" uploaders</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="trusted-only" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Telegram Tab ──────────────────────────────── -->
+      <div id="tab-telegram" class="tab-pane">
+        <div style="max-width:540px">
+          <div class="section-title" style="margin-bottom:6px">📱 Telegram Notifications</div>
+          <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:20px">
+            Create a bot at <a href="https://t.me/BotFather" target="_blank" style="color:var(--accent-light)">@BotFather</a>,
+            then get your Chat ID by messaging <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent-light)">@userinfobot</a>.
+          </p>
+
+          <div class="card" style="margin-bottom:20px">
+            <div class="form-group">
+              <label for="tg-token">Bot Token</label>
+              <input class="input" id="tg-token" type="password"
+                     placeholder="123456789:AABBccDDeeFF...">
+            </div>
+            <div class="form-group">
+              <label for="tg-chat">Chat ID</label>
+              <input class="input" id="tg-chat" placeholder="e.g. 987654321">
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-test-tg" onclick="testTelegram()">
+              📤 Send Test Message
+            </button>
+          </div>
+
+          <div class="card" style="margin-bottom:20px">
+            <div style="font-weight:700;margin-bottom:14px;font-size:.9rem">Notification Events</div>
+
+            <div class="toggle-wrap">
+              <div>
+                <div class="toggle-label">Bot Started</div>
+                <div class="toggle-sub">Notify when the bot comes online</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="tg-start" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-wrap">
+              <div>
+                <div class="toggle-label">New Episode Downloaded</div>
+                <div class="toggle-sub">Notify when an episode finishes downloading</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="tg-ep" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-wrap">
+              <div>
+                <div class="toggle-label">Old Episode Deleted</div>
+                <div class="toggle-sub">Notify when a previous episode is removed</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="tg-del">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="saveTelegram()">💾 Save Telegram Settings</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Logs Tab ──────────────────────────────────── -->
+      <div id="tab-logs" class="tab-pane">
+        <div class="section-header">
+          <div>
+            <div class="section-title">Live Log Viewer</div>
+            <div class="section-sub">Last 400 lines from bot.log — auto-refreshes every 30s</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="clearLogs()">🗑 Clear</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadLogs()">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <div class="log-viewer" id="log-viewer">
+          <span class="log-line INFO">Loading logs…</span>
+        </div>
+      </div>
+
+    </div><!-- .content -->
+  </main>
+</div><!-- .app -->
+
+<!-- ── Add/Edit Anime Modal ──────────────────────────────── -->
+<div class="modal-overlay" id="anime-modal" onclick="if(event.target===this) closeModal('anime-modal')">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">➕ Add Anime</div>
+      <button class="modal-close" onclick="closeModal('anime-modal')">✕</button>
+    </div>
+
+    <form id="anime-form" onsubmit="event.preventDefault(); saveAnime()">
+      <div class="form-group">
+        <label for="anime-name">Anime Name *</label>
+        <input class="input" id="anime-name" placeholder="e.g. One Piece" required>
+      </div>
+      <div class="form-group">
+        <label for="anime-season">Season (Optional)</label>
+        <input class="input" id="anime-season" placeholder="e.g. S2, 2, or leave blank">
+      </div>
+      <div class="form-group">
+        <label for="anime-query">Nyaa Search Query *</label>
+        <input class="input" id="anime-query"
+               placeholder="e.g. One Piece (usually same as name)"
+               required>
+        <small style="color:var(--text-faint);font-size:.75rem">
+          This is searched on Nyaa.si — try to match exactly what groups use in their titles.
+        </small>
+      </div>
+      <div class="form-group">
+        <label for="anime-res">Preferred Resolution</label>
+        <select class="input" id="anime-res">
+          <option value="1080p">1080p (Full HD)</option>
+          <option value="720p">720p (HD)</option>
+          <option value="480p">480p (SD)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="anime-cat">Nyaa Category</label>
+        <select class="input" id="anime-cat">
+          <option value="1_2">Anime - English-translated</option>
+          <option value="1_3">Anime - Non-English-translated</option>
+          <option value="1_4">Anime - Raw</option>
+          <option value="1_0">Anime - All</option>
+        </select>
+      </div>
+    </form>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('anime-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAnime()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Download Episode Modal ───────────────────────────── -->
+<div class="modal-overlay" id="dl-ep-modal" onclick="if(event.target===this) closeModal('dl-ep-modal')">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">⬇️ Download Episode — <span id="dl-ep-anime-name"></span></div>
+      <button class="modal-close" onclick="closeModal('dl-ep-modal')">✕</button>
+    </div>
+
+    <div style="padding:0 0 12px">
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px">
+        Search Nyaa.si for a specific episode and queue it for download immediately.
+      </p>
+
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px">
+        <div class="form-group" style="flex:1;margin:0">
+          <label for="dl-ep-number">Episode Number</label>
+          <input class="input" id="dl-ep-number" type="number" min="1" placeholder="e.g. 12"
+                 onkeydown="if(event.key==='Enter') searchEpisode()">
+        </div>
+        <button class="btn btn-primary" id="dl-ep-search-btn" onclick="searchEpisode()">🔍 Search</button>
+      </div>
+
+      <div id="dl-ep-results"></div>
+
+      <div id="dl-ep-confirm" style="display:none;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button class="btn btn-ghost" onclick="closeModal('dl-ep-modal')">Cancel</button>
+        <button class="btn btn-primary" id="dl-ep-confirm-btn" onclick="confirmDownload()">⬇️ Download</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast Container ───────────────────────────────────── -->
+<div id="toasts"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+anime:
+- name: Mushoku Tensei
+  nyaa_query: Mushoku Tensei
+  season: '3'
+  preferred_resolution: 1080p
+  category: '1_2'
+- name: That Time I got Reincarnated As a slime
+  nyaa_query: That Time I got Reincarnated As a slime
+  season: '4'
+  preferred_resolution: 1080p
+  category: '1_2'
+
+poll_interval_minutes: 15
+trusted_only: false
+
+aria2:
+  host: http://aria2
+  port: 6800
+  secret: akarisecret
+
+downloads:
+  save_path: /downloads
+
+telegram:
+  bot_token: YOUR_TELEGRAM_BOT_TOKEN_HERE
+  chat_id: YOUR_CHAT_ID_HERE
+  send_on_start: true
+  send_on_new_episode: true
+  send_on_delete: true
