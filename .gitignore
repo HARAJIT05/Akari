@@ -6,6 +6,7 @@ downloads/
 
 # User Configuration (Never commit secrets!)
 config.yaml
+.env
 
 # Python
 __pycache__/
@@ -26,4 +27,3 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
-.env
