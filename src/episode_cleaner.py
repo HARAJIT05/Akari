@@ -22,15 +22,19 @@ def delete_previous_episode(aria2_client, anime_state: dict) -> bool:
     old_title = anime_state.get("release_title", "unknown")
     old_path  = anime_state.get("current_file_path", "")
 
-    if not old_gid:
-        logger.debug("No previous episode GID recorded — nothing to delete")
+    if not old_gid and not old_path:
+        logger.debug("No previous episode GID or path recorded — nothing to delete")
         return True
 
     logger.info(f"🗑️  Deleting EP{old_ep}: {old_title}")
     if old_path:
         logger.info(f"   File: {old_path}")
 
-    success = aria2_client.remove(old_gid, delete_files=True)
+    # Pass old_path as a fallback so the file is deleted directly from disk
+    # even if aria2 has forgotten the GID (happens after a container restart,
+    # since aria2 doesn't persist download history across restarts by default).
+    fallback = [old_path] if old_path else []
+    success = aria2_client.remove(old_gid or "", delete_files=True, fallback_paths=fallback)
     if success:
         logger.info(f"✅ EP{old_ep} removed")
     else:

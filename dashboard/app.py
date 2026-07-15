@@ -174,6 +174,20 @@ def api_delete_anime(name: str):
         raise HTTPException(404, f"'{name}' not found")
     config["anime"] = new_list
     save_config(config)
+
+    # Cancel any active aria2 download for this anime (without deleting files)
+    anime_state = state_manager.get_state(name)
+    if anime_state:
+        gid = anime_state.get("current_gid")
+        if gid and anime_state.get("status") in ("downloading", "seeding", "paused"):
+            aria2 = get_aria2()
+            if aria2:
+                try:
+                    aria2.remove(gid, delete_files=False)
+                    logger.info(f"Cancelled aria2 download for '{name}' (gid={gid})")
+                except Exception as e:
+                    logger.warning(f"Could not cancel download for '{name}': {e}")
+
     state_manager.remove(name)
     return {"ok": True, "message": f"'{name}' removed from watchlist"}
 

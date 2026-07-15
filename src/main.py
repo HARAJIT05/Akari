@@ -49,9 +49,59 @@ def anime_save_path(base_path: str, anime_name: str) -> str:
     e.g. /downloads/Futsutsuka na Akujo dewa Gozaimasu ga/
     """
     folder = sanitize_folder_name(anime_name)
-    path   = os.path.join(base_path, folder)
+    path = os.path.join(base_path, folder)
     os.makedirs(path, exist_ok=True)
+    os.chmod(path, 0o777)
     return path
+
+
+# ── Orphaned Episode Cleanup ────────────────────────────────────────────────
+
+# Video file extensions to consider as episode files
+_VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"}
+
+
+def cleanup_orphaned_episodes(state: StateManager, config: dict):
+    """
+    Scan each anime's download folder and delete any video files that are NOT
+    the currently tracked episode.  Runs at the start of every poll cycle so
+    orphaned files from a failed previous cleanup are always caught — even
+    across container restarts (when aria2 has forgotten the old GID).
+
+    Skips anime that are currently downloading to avoid touching in-progress files.
+    """
+    base_path  = config.get("downloads", {}).get("save_path", "/downloads")
+    anime_list = config.get("anime", [])
+    all_states = state.get_all()
+
+    for anime_cfg in anime_list:
+        name         = anime_cfg["name"]
+        anime_state  = all_states.get(name, {})
+        current_file = anime_state.get("current_file_path", "")
+        status       = anime_state.get("status", "")
+
+        # Don't touch the folder while a download is in progress
+        if status == "downloading":
+            continue
+
+        folder = os.path.join(base_path, sanitize_folder_name(name))
+        if not os.path.isdir(folder):
+            continue
+
+        for fname in os.listdir(folder):
+            fpath = os.path.join(folder, fname)
+            if not os.path.isfile(fpath):
+                continue
+            if os.path.splitext(fname)[1].lower() not in _VIDEO_EXTS:
+                continue
+            if fpath == current_file:
+                continue  # this is the episode we want to keep
+
+            try:
+                os.remove(fpath)
+                logger.info(f"🗑️  [cleanup] Removed orphaned episode: {fname}")
+            except OSError as e:
+                logger.warning(f"[cleanup] Could not delete {fpath}: {e}")
 
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -240,9 +290,9 @@ def check_anime(
         query = f"{query} {season}"
     category     = anime_cfg.get("category", "1_2")
     preferred_res= anime_cfg.get("preferred_resolution", "1080p")
+    prefer_uncen = anime_cfg.get("prefer_uncensored", False)
     trusted_only = config.get("trusted_only", True)
     base_path    = config.get("downloads", {}).get("save_path", "/downloads")
-    save_path    = anime_save_path(base_path, name)   # ← per-anime subfolder
     tg_cfg       = config.get("telegram", {})
 
     logger.info(f"Checking '{name}'…")
@@ -261,17 +311,39 @@ def check_anime(
 
     logger.info(f"  → latest={latest_ep}, current={current_ep or 'none'}")
 
-    current_state = state.get_state(name)
+    current_state  = state.get_state(name)
     current_status = current_state.get("status") if current_state else None
-    
+
+    # ── File existence check ──────────────────────────────────────────────────
+    # If the episode file we saved in state no longer exists on disk (e.g. it
+    # was manually deleted, or the disk was wiped), re-download it.
+    # We skip this check while a download is in progress because:
+    #   • "downloading": the file is partial / not yet on disk
+    #   • "seeding":     the file exists but aria2 still holds it open
+    # We also skip it when the saved path is an aria2 [METADATA] placeholder —
+    # that only appears briefly while a magnet link is resolving; the real
+    # file path isn't known yet so we can't verify it.
+    _saved_path   = (current_state or {}).get("current_file_path", "")
+    _file_missing = (
+        bool(_saved_path)                                    # we have a saved path
+        and "[METADATA]" not in _saved_path                 # it's a real path, not a placeholder
+        and current_status not in ("downloading", "seeding", None)  # not in-progress
+        and not os.path.isfile(_saved_path)                 # and the file is actually gone
+    )
+
+    if _file_missing:
+        logger.warning(
+            f"  → EP{current_ep} file missing from disk: {_saved_path!r}\n"
+            f"     Scheduling re-download…"
+        )
+
     # If the latest episode is less than or equal to what we have tracked,
-    # we usually skip. But if it errored, we should retry!
+    # skip — unless it errored or the file has gone missing from disk.
     if current_ep is not None and latest_ep <= current_ep:
-        if current_status != "error":
+        if current_status != "error" and not _file_missing:
             return False
 
     # Skip if already downloading this episode
-    current_state = state.get_state(name)
     if (
         current_state
         and current_state.get("last_episode") == latest_ep
@@ -281,7 +353,7 @@ def check_anime(
         return False
 
     # Pick best release
-    best = pick_best_release(episodes[latest_ep], preferred_res, trusted_only)
+    best = pick_best_release(episodes[latest_ep], preferred_res, trusted_only, prefer_uncen)
     if not best:
         logger.warning(f"  → No suitable release for '{name}' EP{latest_ep}")
         return False
@@ -290,12 +362,13 @@ def check_anime(
         f"  → New: EP{latest_ep} | {best.title} | {best.seeders} seeders | {best.size}"
     )
 
-    # Delete previous episode
+    # Delete previous episode (skip if the file was already missing — nothing to remove)
     prev_state = state.get_state(name)
-    if prev_state and prev_state.get("current_gid"):
+    if prev_state and prev_state.get("current_gid") and not _file_missing:
         delete_previous_episode(aria2, prev_state)
 
     # Send to aria2c — prefer magnet, fall back to .torrent URL
+    save_path = anime_save_path(base_path, name)   # ← per-anime subfolder
     try:
         if best.magnet:
             gid = aria2.add_magnet(best.magnet, save_path)
@@ -330,6 +403,9 @@ def run_cycle(aria2: Aria2Client, state: StateManager, config: dict):
         bot_token=tg_cfg.get("bot_token", ""),
         chat_id=tg_cfg.get("chat_id", ""),
     )
+
+    # Clean up any orphaned episode files from previous failed deletions
+    cleanup_orphaned_episodes(state, config)
 
     check_in_progress_downloads(aria2, state, notifier, config)
 

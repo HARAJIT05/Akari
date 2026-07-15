@@ -9,7 +9,9 @@
 - **Manual Downloads**: Search Nyaa for specific (or older) episodes right from the dashboard.
 - **Control Active Downloads**: Pause, Resume, and Cancel downloads visually.
 - **One-Click Folder Access**: Open downloaded folders natively on your host machine from the History tab.
-- **Telegram Control & Alerts**: Get notified exactly when episodes finish downloading and control the bot (check status, trigger polls, list anime) directly from Telegram.
+- **Telegram Control & Alerts**: Get notified exactly when episodes finish downloading and control the bot directly from Telegram.
+- **Live Progress**: The `/status` command in Telegram shows real-time animated download progress bars.
+- **Auto-Healing**: The bot automatically re-downloads missing files and cleans up orphaned episodes on startup.
 
 ## 🚀 Quick Start
 
@@ -17,11 +19,16 @@
 - [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/install/)
 - A [Telegram bot](https://t.me/BotFather) (optional, for notifications and remote control)
 
-### 2. Start Everything
+### 2. Configure and Start
 
+1. Create a `.env` file in the root directory to set your download path (this makes it easy to move the bot to a new PC):
+```env
+DOWNLOAD_DIR=/path/to/your/custom/folder
+```
+
+2. Start the containers:
 ```bash
-cd akari
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 This starts three containers:
@@ -58,16 +65,16 @@ akari/
 ```
 
 **Where do my downloads go?**
-Downloads are mapped directly to the `./downloads` folder inside the `Akari` directory by default, and sorted into per-anime subfolders. You can customize this path in `docker-compose.yml`.
+Downloads are mapped directly to the folder you specify in your `.env` file (e.g. `DOWNLOAD_DIR=/home/kazuha/Videos`), and sorted into per-anime subfolders. If no `.env` is set, it defaults to `./downloads` inside the Akari directory.
 
 ---
 
 ## 📱 Telegram Commands
 Once your Telegram Bot Token and Chat ID are configured, you can control the bot directly from Telegram:
 - `/start` — Show welcome message and available commands
-- `/status` — View all currently active/waiting downloads with progress and speed
+- `/status` — View all currently active downloads with an **animated live progress bar** that updates every second
 - `/check` — Force an immediate manual check of Nyaa.si for new episodes
-- `/list` — View a list of all your tracked anime and the latest downloaded episode
+- `/list` — View a list of all your tracked anime, their latest downloaded episode, and current status (⬇️, ✅, 🌱, ❌)
 
 ---
 
@@ -100,6 +107,18 @@ telegram:
 ```
 
 Changes take effect on the next poll cycle (no restart needed).
+
+## 🛠️ Troubleshooting
+
+### 1. "docker-credential-desktop": executable file not found in $PATH
+**Symptom:** When running `docker compose up -d`, you get an error saying `error listing credentials - err: exec: "docker-credential-desktop": executable file not found`.
+**Solution:** This is a common Docker Desktop artifact on Linux. Open `~/.docker/config.json` and completely remove the `"credsStore": "desktop"` line.
+
+### 2. "Permission denied" errors from aria2c
+**Symptom:** The bot logs show `❌ [Anime Name] EP[X] download error: Failed to open the file ... cause: Permission denied`.
+**Solution:** This happens if the anime's subfolder was manually created or previously owned by `root` with strict `755` permissions, preventing the `aria2c` daemon (which runs as a secure user, UID 1000) from writing the video file. 
+* **Fix:** Manually grant write permissions to the specific folder on your host machine: `chmod 777 -R /path/to/your/download/folder/"Anime Name"`.
+*(Note: Akari automatically handles folder creation and applies 777 permissions for all new anime going forward!)*
 
 ---
 

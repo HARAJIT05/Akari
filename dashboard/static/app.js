@@ -8,6 +8,12 @@ let appState = {};
 let coverCache = {};
 let editingAnime = null; // null = add, string = anime name being edited
 
+// Unicode-safe base64 (handles Japanese/Chinese anime names)
+function safeB64(str) {
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+    (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+}
+
 // ── Init ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   await refreshAll();
@@ -145,7 +151,7 @@ async function renderOverview() {
     const s = appState[a.name] || {};
     const ep = s.last_episode ? `EP${s.last_episode}` : 'No episodes yet';
     return `
-      <div class="anime-card" id="card-${btoa(a.name).replace(/=/g,'')}">
+      <div class="anime-card" id="card-${safeB64(a.name).replace(/=/g,'')}">
         <div class="anime-cover-placeholder">🎌</div>
         <div class="anime-body">
           <div class="anime-name" title="${a.name}">${a.name}</div>
@@ -161,7 +167,7 @@ async function renderOverview() {
 
   // Lazy-load covers
   for (const a of animeList) {
-    const card = document.getElementById('card-' + btoa(a.name).replace(/=/g,''));
+    const card = document.getElementById('card-' + safeB64(a.name).replace(/=/g,''));
     if (!card) continue;
     const url = await fetchCover(a.name);
     if (url) {
@@ -188,7 +194,7 @@ async function renderAnimeTab() {
     const s = appState[a.name] || {};
     const ep = s.last_episode ? `EP${s.last_episode}` : 'Not started';
     return `
-      <div class="anime-list-item" id="listitem-${btoa(a.name).replace(/=/g,'')}">
+      <div class="anime-list-item" id="listitem-${safeB64(a.name).replace(/=/g,'')}">
         <div class="anime-list-thumb-ph">🎌</div>
         <div class="anime-list-info">
           <div class="anime-list-name">${a.name}</div>
@@ -205,7 +211,7 @@ async function renderAnimeTab() {
 
   // Lazy-load cover thumbs
   for (const a of animeList) {
-    const item = document.getElementById('listitem-' + btoa(a.name).replace(/=/g,''));
+    const item = document.getElementById('listitem-' + safeB64(a.name).replace(/=/g,''));
     if (!item) continue;
     const url = await fetchCover(a.name);
     if (url) {
@@ -223,6 +229,7 @@ function openAddAnime() {
   document.getElementById('anime-season').value = '';
   document.getElementById('anime-res').value = '1080p';
   document.getElementById('anime-cat').value = '1_2';
+  document.getElementById('anime-uncensored').checked = false;
   openModal('anime-modal');
 }
 
@@ -236,6 +243,7 @@ function openEditAnime(name) {
   document.getElementById('anime-query').value = a.nyaa_query;
   document.getElementById('anime-res').value = a.preferred_resolution || '1080p';
   document.getElementById('anime-cat').value = a.category || '1_2';
+  document.getElementById('anime-uncensored').checked = !!a.prefer_uncensored;
   openModal('anime-modal');
 }
 
@@ -245,10 +253,11 @@ async function saveAnime() {
   const query  = document.getElementById('anime-query').value.trim();
   const res    = document.getElementById('anime-res').value;
   const cat    = document.getElementById('anime-cat').value;
+  const uncen  = document.getElementById('anime-uncensored').checked;
 
   if (!name || !query) { toast('Name and query are required', 'error'); return; }
 
-  const payload = { name, nyaa_query: query, season, preferred_resolution: res, category: cat };
+  const payload = { name, nyaa_query: query, season, preferred_resolution: res, category: cat, prefer_uncensored: uncen };
   const isEdit  = !!editingAnime;
   const url     = isEdit ? `/api/anime/${encodeURIComponent(editingAnime)}` : '/api/anime';
   const method  = isEdit ? 'PUT' : 'POST';

@@ -38,14 +38,16 @@ def pick_best_release(
     releases: list,
     preferred_res: str = "1080p",
     trusted_only: bool = True,
+    prefer_uncensored: bool = False,
 ) -> Optional[object]:
     """
     Select the best release from a list of Release objects.
 
     Strategy (in order):
     1. Prefer trusted uploaders (if trusted_only=True and any exist)
-    2. Prefer the specified resolution
-    3. Return the one with the highest seeder count
+    2. Prefer uncensored (if prefer_uncensored=True and any exist)
+    3. Prefer the specified resolution
+    4. Return the one with the highest seeder count
     """
     candidates = list(releases)
     if not candidates:
@@ -61,7 +63,16 @@ def pick_best_release(
                 "No trusted releases found — using all releases as fallback"
             )
 
-    # Step 2: filter by preferred resolution
+    # Step 2: filter by uncensored (if requested)
+    if prefer_uncensored:
+        uncensored_filtered = [
+            r for r in candidates 
+            if "uncensored" in r.title.lower() or "uncen" in r.title.lower()
+        ]
+        if uncensored_filtered:
+            candidates = uncensored_filtered
+
+    # Step 3: filter by preferred resolution
     if preferred_res:
         res_filtered = [r for r in candidates if preferred_res.lower() in r.title.lower()]
         if res_filtered:

@@ -148,10 +148,14 @@ class Aria2Client:
             logger.error(f"Failed to unpause {gid}: {e}")
             return False
 
-    def remove(self, gid: str, delete_files: bool = True) -> bool:
+    def remove(self, gid: str, delete_files: bool = True, fallback_paths: list[str] | None = None) -> bool:
         """
         Remove a download from aria2c's queue/history.
         Optionally deletes the downloaded files from disk.
+
+        If aria2 no longer knows about the GID (e.g. after a container restart
+        its in-memory history is lost), `fallback_paths` are deleted directly
+        from disk instead so we don't silently skip file cleanup.
         """
         # Get file paths before removing (so we can delete them)
         file_paths = self.get_file_paths(gid) if delete_files else []
@@ -165,14 +169,18 @@ class Aria2Client:
 
         # Delete files from disk
         if delete_files:
-            for path in file_paths:
+            # If aria2 no longer has the GID in memory (returns empty paths),
+            # fall back to the paths we saved in state.json
+            paths_to_delete = file_paths or (fallback_paths or [])
+            for path in paths_to_delete:
+                if not path or "[METADATA]" in path:
+                    continue
                 try:
                     if os.path.isfile(path):
                         os.remove(path)
                         logger.info(f"Deleted file: {path}")
-                    elif os.path.isdir(path):
-                        shutil.rmtree(path)
-                        logger.info(f"Deleted dir:  {path}")
+                    else:
+                        logger.debug(f"Already gone or is a directory: {path}")
                 except OSError as e:
                     logger.warning(f"Could not delete {path}: {e}")
 
