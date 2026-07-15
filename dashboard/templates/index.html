@@ -6,13 +6,14 @@
   <title>Akari Dashboard</title>
   <meta name="description" content="Autonomous anime downloader — manage your watchlist, monitor downloads, and configure settings.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ build_time }}">
 </head>
 <body>
 
 <div class="app">
 
-  <!-- ── Sidebar ────────────────────────────────────────── -->
+  <!-- ── Sidebar & Mobile Overlay ─────────────────────────── -->
+  <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
   <aside class="sidebar">
     <div class="logo">
       <span class="logo-icon">🤖</span>
@@ -54,6 +55,7 @@
 
     <!-- Header -->
     <div class="header">
+      <button class="hamburger-btn" onclick="toggleSidebar()">☰</button>
       <h1 id="page-title">🏠 Overview</h1>
       <div class="header-actions">
         <div class="bot-status">
@@ -76,16 +78,6 @@
             <div class="stat-icon">📺</div>
             <div class="stat-label">Tracked Anime</div>
             <div class="stat-value gradient" id="stat-anime">–</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">⬇️</div>
-            <div class="stat-label">Downloading</div>
-            <div class="stat-value" id="stat-dl">–</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon">✅</div>
-            <div class="stat-label">Completed</div>
-            <div class="stat-value" id="stat-seed">–</div>
           </div>
           <div class="stat-card">
             <div class="stat-icon">⏱️</div>
@@ -145,7 +137,10 @@
             <div class="section-title">Download History</div>
             <div class="section-sub">All tracked episodes and their file locations</div>
           </div>
-          <button class="btn btn-ghost" onclick="loadHistory()">🔄 Refresh</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-danger btn-sm" onclick="clearAllHistory()">🗑️ Clear All</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadHistory()">🔄 Refresh</button>
+          </div>
         </div>
         <div id="history-list">
           <!-- Rendered by JS -->
@@ -400,9 +395,27 @@
   </div>
 </div>
 
+<!-- ── Files Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay" id="files-modal" onclick="if(event.target===this) closeModal('files-modal')">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📂 Downloaded Files — <span id="files-anime-name"></span></div>
+      <button class="modal-close" onclick="closeModal('files-modal')">✕</button>
+    </div>
+    <div style="padding:0 0 12px">
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px">
+        Manage episodes stored on your disk for this anime.
+      </p>
+      <div id="files-list" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast Container ───────────────────────────────────── -->
 <div id="toasts"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ build_time }}"></script>
 </body>
 </html>

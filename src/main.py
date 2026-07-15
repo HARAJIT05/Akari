@@ -43,6 +43,44 @@ def sanitize_folder_name(name: str) -> str:
     return safe or "Unknown"
 
 
+import urllib.request
+import json
+
+def ensure_poster_exists(anime_name: str, folder_path: str):
+    """
+    Fetch the anime cover from AniList and save it as 'poster.jpg' for Jellyfin/Plex.
+    """
+    poster_path = os.path.join(folder_path, "poster.jpg")
+    if os.path.exists(poster_path):
+        return
+
+    query = f'''query{{Media(search:"{anime_name}",type:ANIME){{coverImage{{large}}}}}}'''
+    try:
+        req = urllib.request.Request(
+            'https://graphql.anilist.co',
+            data=json.dumps({"query": query}).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (compatible; Akari/1.0)',
+                'Accept': 'application/json',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read())
+            
+        media = data.get('data', {}).get('Media')
+        if media:
+            image_url = media.get('coverImage', {}).get('large')
+            if image_url:
+                req_img = urllib.request.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req_img, timeout=10) as response, open(poster_path, 'wb') as out_file:
+                    out_file.write(response.read())
+                os.chmod(poster_path, 0o666)  # ensure read/write permissions
+                logging.getLogger("akari").info(f"🖼️ Downloaded poster for '{anime_name}'")
+    except Exception as e:
+        logging.getLogger("akari").debug(f"Failed to fetch poster for '{anime_name}': {e}")
+
+
 def anime_save_path(base_path: str, anime_name: str) -> str:
     """
     Return (and pre-create) a per-anime subfolder inside base_path.
@@ -52,7 +90,58 @@ def anime_save_path(base_path: str, anime_name: str) -> str:
     path = os.path.join(base_path, folder)
     os.makedirs(path, exist_ok=True)
     os.chmod(path, 0o777)
+    
+    ensure_poster_exists(anime_name, path)
+    
     return path
+
+
+# ── Batch Poster Scanner ────────────────────────────────────────────────────
+
+def scan_and_download_posters(base_path: str):
+    """
+    Walk every subfolder in base_path.
+    For each folder missing a poster.jpg, download the cover art from AniList
+    using the folder name as the anime title.
+    Already-existing posters are skipped silently.
+    """
+    log = logging.getLogger("akari")
+    if not os.path.isdir(base_path):
+        log.warning(f"Poster scan: downloads folder not found: {base_path}")
+        return
+
+    folders = [
+        f for f in os.listdir(base_path)
+        if os.path.isdir(os.path.join(base_path, f))
+    ]
+
+    if not folders:
+        return
+
+    log.info(f"🖼️  Poster scan: checking {len(folders)} folder(s) in {base_path}")
+    downloaded, skipped = 0, 0
+
+    for folder_name in sorted(folders):
+        folder_path = os.path.join(base_path, folder_name)
+        poster_path = os.path.join(folder_path, "poster.jpg")
+
+        if os.path.exists(poster_path):
+            skipped += 1
+            log.debug(f"  ⏭️  {folder_name}: poster exists, skipping")
+            continue
+
+        log.info(f"  ⬇️  {folder_name}: downloading poster…")
+        try:
+            ensure_poster_exists(folder_name, folder_path)
+            if os.path.exists(poster_path):
+                downloaded += 1
+                log.info(f"  ✅  {folder_name}: poster saved")
+            else:
+                log.warning(f"  ⚠️  {folder_name}: not found on AniList")
+        except Exception as e:
+            log.warning(f"  ❌  {folder_name}: failed — {e}")
+
+    log.info(f"🖼️  Poster scan complete: {downloaded} downloaded, {skipped} skipped")
 
 
 # ── Orphaned Episode Cleanup ────────────────────────────────────────────────
@@ -434,6 +523,12 @@ def main():
     anime_count = len(config.get("anime", []))
     poll_mins   = config.get("poll_interval_minutes", 15)
     logger.info(f"Tracking {anime_count} anime | Poll every {poll_mins} min")
+
+    # Scan all download folders and fetch missing posters at startup
+    # Prefer DOWNLOAD_DIR env var (set from .env via docker-compose) over config.yaml
+    base_path = os.environ.get("DOWNLOAD_DIR") or config.get("downloads", {}).get("save_path", "/downloads")
+    logger.info(f"📂 Download path: {base_path}")
+    scan_and_download_posters(base_path)
 
     # Telegram startup notification
     tg_cfg = config.get("telegram", {})

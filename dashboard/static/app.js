@@ -57,6 +57,15 @@ function setTab(tab) {
   };
   document.getElementById('page-title').textContent = titles[tab] || tab;
   renderCurrentTab();
+  
+  // Auto-close sidebar on mobile after clicking a tab
+  document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.sidebar-overlay').classList.remove('open');
+}
+
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.querySelector('.sidebar-overlay').classList.toggle('open');
 }
 
 function renderCurrentTab() {
@@ -69,29 +78,20 @@ function renderCurrentTab() {
   if (currentTab === 'logs')      loadLogs();
 }
 
-// ── AniList Cover Art ───────────────────────────────────────
-async function fetchCover(name) {
-  if (coverCache[name]) return coverCache[name];
-  try {
-    const q = `query{Media(search:"${name}",type:ANIME){coverImage{large}}}`;
-    const r = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: q }),
-    });
-    const data = await r.json();
-    const url = data?.data?.Media?.coverImage?.large || null;
-    coverCache[name] = url;
-    return url;
-  } catch {
-    return null;
-  }
+// ── Anime Cover Art ───────────────────────────────────────
+// Served via backend (/api/anime/{name}/poster).
+// Returns URL directly — img onerror handles missing posters gracefully.
+function getPosterUrl(name) {
+  return `/api/anime/${encodeURIComponent(name)}/poster`;
 }
 
-function coverImg(url, cls = 'anime-cover') {
-  if (url) return `<img src="${url}" class="${cls}" alt="" loading="lazy">`;
-  return `<div class="${cls}-placeholder">🎌</div>`;
+function coverImg(url, name = '', cls = 'anime-cover') {
+  const placeholder = `<div class="${cls}-placeholder">🎌</div>`;
+  if (!url) return placeholder;
+  return `<img src="${url}" class="${cls}" alt="${name}" loading="lazy"
+    onerror="this.outerHTML='${placeholder.replace(/'/g, "&#39;")}'">`;
 }
+
 
 // ── Helpers ─────────────────────────────────────────────────
 function statusBadge(status) {
@@ -130,13 +130,10 @@ function fmtEta(secs) {
 // ── Overview Tab ────────────────────────────────────────────
 async function renderOverview() {
   const animeList = cfg.anime || [];
-  const downloading = Object.values(appState).filter(s => s.status === 'downloading').length;
-  const seeding = Object.values(appState).filter(s => s.status === 'seeding').length;
 
-  document.getElementById('stat-anime').textContent   = animeList.length;
-  document.getElementById('stat-dl').textContent      = downloading;
-  document.getElementById('stat-seed').textContent    = seeding;
-  document.getElementById('stat-poll').textContent    = (cfg.poll_interval_minutes || 15) + 'm';
+  document.getElementById('stat-anime').textContent = animeList.length;
+  document.getElementById('stat-poll').textContent  = (cfg.poll_interval_minutes || 15) + 'm';
+
 
   const grid = document.getElementById('overview-grid');
   if (!animeList.length) {
@@ -150,9 +147,11 @@ async function renderOverview() {
   grid.innerHTML = animeList.map(a => {
     const s = appState[a.name] || {};
     const ep = s.last_episode ? `EP${s.last_episode}` : 'No episodes yet';
+    const posterUrl = getPosterUrl(a.name);
     return `
-      <div class="anime-card" id="card-${safeB64(a.name).replace(/=/g,'')}">
-        <div class="anime-cover-placeholder">🎌</div>
+      <div class="anime-card">
+        <img src="${posterUrl}" class="anime-cover" alt="${a.name}" loading="lazy"
+          onerror="this.outerHTML='<div class=&quot;anime-cover-placeholder&quot;>🎌</div>'">
         <div class="anime-body">
           <div class="anime-name" title="${a.name}">${a.name}</div>
           <div class="anime-ep">${ep} · ${a.preferred_resolution}</div>
@@ -164,17 +163,6 @@ async function renderOverview() {
         </div>
       </div>`;
   }).join('');
-
-  // Lazy-load covers
-  for (const a of animeList) {
-    const card = document.getElementById('card-' + safeB64(a.name).replace(/=/g,''));
-    if (!card) continue;
-    const url = await fetchCover(a.name);
-    if (url) {
-      const ph = card.querySelector('.anime-cover-placeholder');
-      if (ph) ph.outerHTML = `<img src="${url}" class="anime-cover" alt="${a.name}" loading="lazy">`;
-    }
-  }
 }
 
 // ── Anime Tab ───────────────────────────────────────────────
@@ -193,32 +181,24 @@ async function renderAnimeTab() {
   container.innerHTML = animeList.map(a => {
     const s = appState[a.name] || {};
     const ep = s.last_episode ? `EP${s.last_episode}` : 'Not started';
+    const posterUrl = getPosterUrl(a.name);
     return `
-      <div class="anime-list-item" id="listitem-${safeB64(a.name).replace(/=/g,'')}">
-        <div class="anime-list-thumb-ph">🎌</div>
+      <div class="anime-list-item">
+        <img src="${posterUrl}" class="anime-list-thumb" alt="${a.name}"
+          onerror="this.outerHTML='<div class=&quot;anime-list-thumb-ph&quot;>🎌</div>'">
         <div class="anime-list-info">
           <div class="anime-list-name">${a.name}</div>
           <div class="anime-list-meta">${ep} · ${a.season ? 'S' + a.season.replace(/^S/i, '') + ' · ' : ''}${a.preferred_resolution} · ${a.nyaa_query}</div>
           ${statusBadge(s.status)}
         </div>
         <div class="anime-list-actions">
+          <button class="btn btn-ghost btn-sm" data-files-name="${escAttr(a.name)}" onclick="openAnimeFiles(this.dataset.filesName)">📂 Files</button>
           <button class="btn btn-ghost btn-sm" data-dl-name="${escAttr(a.name)}" onclick="openDownloadEpisode(this.dataset.dlName)">⬇️ Episode</button>
           <button class="btn btn-ghost btn-sm" data-edit-name="${escAttr(a.name)}" onclick="openEditAnime(this.dataset.editName)">✏️ Edit</button>
           <button class="btn btn-danger btn-sm" data-del-name="${escAttr(a.name)}" onclick="confirmDeleteAnime(this.dataset.delName)">🗑️</button>
         </div>
       </div>`;
   }).join('');
-
-  // Lazy-load cover thumbs
-  for (const a of animeList) {
-    const item = document.getElementById('listitem-' + safeB64(a.name).replace(/=/g,''));
-    if (!item) continue;
-    const url = await fetchCover(a.name);
-    if (url) {
-      const ph = item.querySelector('.anime-list-thumb-ph');
-      if (ph) ph.outerHTML = `<img src="${url}" class="anime-list-thumb" alt="${a.name}">`;
-    }
-  }
 }
 
 // ── Anime Modal ─────────────────────────────────────────────
@@ -636,6 +616,8 @@ async function loadHistory() {
                 data-copy="${escAttr(h.host_path)}" onclick="copyPath(this.dataset.copy)">📋 Copy</button>
               <button class="btn btn-ghost btn-sm" title="Open in file manager"
                 data-path="${escAttr(h.host_path)}" onclick="openFolder(this.dataset.path)">📂 Open</button>
+              <button class="btn btn-danger btn-sm" title="Delete record"
+                data-name="${escAttr(h.name)}" onclick="deleteHistory(this.dataset.name)">🗑️</button>
             </div>
           </div>` : `<div class="history-path history-no-path">📂 File path not yet recorded</div>`}
         </div>`;
@@ -669,5 +651,75 @@ async function openFolder(hostPath) {
     // File manager couldn't be opened from Docker — copy path instead
     await copyPath(res.folder || hostPath);
     toast('Path copied! Paste it in your file manager address bar (Ctrl+L).', 'info');
+  }
+}
+
+async function deleteHistory(name) {
+  if (!confirm(`Delete history log for "${name}"?\n\nIf this anime is still in your watchlist, the bot may attempt to download it again next time it checks.`)) return;
+  const res = await apiCall('DELETE', `/api/history/${encodeURIComponent(name)}`);
+  if (res.ok) {
+    toast(`History for '${name}' deleted`, 'info');
+    await loadHistory();
+    await refreshAll();
+  }
+}
+
+async function clearAllHistory() {
+  if (!confirm(`Are you sure you want to clear ALL download history?\n\nIf you have anime in your watchlist, the bot will treat them as new and may re-download them next time it checks.`)) return;
+  const res = await apiCall('DELETE', `/api/history`);
+  if (res.ok) {
+    toast(`All history cleared`, 'info');
+    await loadHistory();
+    await refreshAll();
+  }
+}
+
+// ── Files Modal ──────────────────────────────────────────────────────────────
+let _filesAnime = null;
+
+async function openAnimeFiles(name) {
+  _filesAnime = name;
+  document.getElementById('files-anime-name').textContent = name;
+  const listEl = document.getElementById('files-list');
+  listEl.innerHTML = '<div style="color:var(--text-muted);font-size:.85rem">Loading files…</div>';
+  openModal('files-modal');
+  
+  await loadAnimeFiles();
+}
+
+async function loadAnimeFiles() {
+  const listEl = document.getElementById('files-list');
+  try {
+    const res = await fetch(`/api/anime/${encodeURIComponent(_filesAnime)}/files`).then(r => r.json());
+    if (!res.files || !res.files.length) {
+      listEl.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-text">No downloaded files found for this anime.</div>
+      </div>`;
+      return;
+    }
+    
+    listEl.innerHTML = res.files.map(f => `
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-card);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;flex-direction:column;min-width:0;flex:1;margin-right:12px">
+          <span style="font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escAttr(f.name)}">${escHtml(f.name)}</span>
+          <span style="color:var(--text-muted);font-size:0.8rem">💾 ${fmtSize(f.size)}</span>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteAnimeFile('${escAttr(f.name)}')">🗑️ Delete</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    listEl.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><div class="empty-text">Failed to load files</div></div>`;
+  }
+}
+
+async function deleteAnimeFile(filename) {
+  if (!confirm(`Are you sure you want to permanently delete from disk:\n\n${filename}`)) return;
+  
+  const res = await apiCall('POST', `/api/anime/${encodeURIComponent(_filesAnime)}/files/delete`, { filename });
+  if (res.ok) {
+    toast(`File deleted successfully`, 'success');
+    await loadAnimeFiles();
+    await refreshAll();
   }
 }

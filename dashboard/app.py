@@ -13,7 +13,7 @@ from typing import Optional, List
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -37,11 +37,17 @@ def sanitize_folder_name(name: str) -> str:
     return safe.strip('. ') or "Unknown"
 
 
+from main import ensure_poster_exists
+
 def anime_save_path(base_path: str, anime_name: str) -> str:
     """Return (and pre-create) a per-anime subfolder inside base_path."""
     folder = sanitize_folder_name(anime_name)
     path   = os.path.join(base_path, folder)
     os.makedirs(path, exist_ok=True)
+    os.chmod(path, 0o777)
+    
+    ensure_poster_exists(anime_name, path)
+    
     return path
 
 
@@ -54,6 +60,7 @@ CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "config.yaml"))
 STATE_PATH = Path("data/state.json")
 LOG_PATH = Path("data/logs/bot.log")
 CHECK_NOW_FLAG = Path("data/.check_now")
+BUILD_TIME = str(int(os.path.getmtime(__file__)))  # changes on every rebuild
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -67,6 +74,18 @@ def load_config() -> dict:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
+
+
+def get_download_path() -> str:
+    """
+    Resolve the download base path.
+    Prefers DOWNLOAD_DIR env var (set from .env via docker-compose),
+    falls back to config.yaml downloads.save_path, then /downloads.
+    """
+    return (
+        os.environ.get("DOWNLOAD_DIR")
+        or load_config().get("downloads", {}).get("save_path", "/downloads")
+    )
 
 
 def save_config(data: dict):
@@ -91,7 +110,10 @@ def get_aria2() -> Aria2Client | None:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html")
+    return templates.TemplateResponse(
+        request=request, name="index.html",
+        context={"build_time": BUILD_TIME}
+    )
 
 
 # ── Config API ────────────────────────────────────────────────────────────────
@@ -190,6 +212,127 @@ def api_delete_anime(name: str):
 
     state_manager.remove(name)
     return {"ok": True, "message": f"'{name}' removed from watchlist"}
+
+
+# ── Poster API ───────────────────────────────────────────────────────────────
+
+@app.get("/api/anime/{name}/poster")
+def api_get_anime_poster(name: str):
+    """
+    Serve the anime poster image.
+    Checks the local download folder for poster.jpg first;
+    if missing, fetches it from AniList on-demand.
+    """
+    config = load_config()
+    base_path = get_download_path()
+    folder = sanitize_folder_name(name)
+    folder_path = os.path.join(base_path, folder)
+    poster_path = os.path.join(folder_path, "poster.jpg")
+
+    # Try to fetch if not present
+    if not os.path.exists(poster_path):
+        os.makedirs(folder_path, exist_ok=True)
+        try:
+            ensure_poster_exists(name, folder_path)
+        except Exception:
+            pass
+
+    if os.path.exists(poster_path):
+        return FileResponse(poster_path, media_type="image/jpeg")
+
+    # Fallback: proxy AniList image directly
+    import urllib.request as _ur
+    query = f'query{{Media(search:"{name}",type:ANIME){{coverImage{{large}}}}}}'
+    try:
+        req = _ur.Request(
+            'https://graphql.anilist.co',
+            data=json.dumps({"query": query}).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (compatible; Akari/1.0)',
+                'Accept': 'application/json',
+            },
+        )
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        media = data.get('data', {}).get('Media')
+        if media:
+            image_url = media.get('coverImage', {}).get('large')
+            if image_url:
+                img_req = _ur.Request(image_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with _ur.urlopen(img_req, timeout=10) as img_resp:
+                    img_data = img_resp.read()
+                # Save to disk for future requests
+                try:
+                    os.makedirs(folder_path, exist_ok=True)
+                    with open(poster_path, 'wb') as pf:
+                        pf.write(img_data)
+                    os.chmod(poster_path, 0o666)
+                    logger.info(f"\U0001f5bc\ufe0f Saved poster for '{name}' via dashboard proxy")
+                    return FileResponse(poster_path, media_type="image/jpeg")
+                except Exception:
+                    pass
+                return StreamingResponse(
+                    iter([img_data]),
+                    media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+    except Exception as e:
+        logger.warning(f"Could not fetch poster for '{name}': {e}")
+
+    raise HTTPException(404, "Poster not available")
+
+
+@app.get("/api/anime/{name}/files")
+def api_get_anime_files(name: str):
+    config = load_config()
+    base_path = get_download_path()
+    folder = sanitize_folder_name(name)
+    path = os.path.join(base_path, folder)
+    if not os.path.exists(path):
+        return {"files": []}
+    
+    files = []
+    for f in os.listdir(path):
+        fpath = os.path.join(path, f)
+        if os.path.isfile(fpath):
+            files.append({
+                "name": f,
+                "size": os.path.getsize(fpath)
+            })
+    # Sort files naturally (so EP2 comes before EP10)
+    files.sort(key=lambda x: [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', x["name"])])
+    return {"files": files}
+
+
+class DeleteFileBody(BaseModel):
+    filename: str
+
+@app.post("/api/anime/{name}/files/delete")
+def api_delete_anime_file(name: str, body: DeleteFileBody):
+    config = load_config()
+    base_path = get_download_path()
+    folder = sanitize_folder_name(name)
+    
+    if ".." in body.filename or "/" in body.filename or "\\" in body.filename:
+        raise HTTPException(400, "Invalid filename")
+        
+    path = os.path.join(base_path, folder, body.filename)
+    if os.path.exists(path) and os.path.isfile(path):
+        try:
+            os.remove(path)
+            
+            # Also clear the state if the deleted file was the current tracked file
+            state = state_manager.get_state(name)
+            if state and state.get("current_file_path") == path:
+                state["current_file_path"] = ""
+                state["status"] = "deleted"
+                state_manager.update_state(name, state)
+                
+            return {"ok": True, "message": f"Deleted {body.filename}"}
+        except Exception as e:
+            raise HTTPException(500, f"Could not delete file: {e}")
+    raise HTTPException(404, "File not found")
 
 
 # ── Manual Episode Download ───────────────────────────────────────────────────
@@ -300,7 +443,7 @@ def api_download_episode(name: str, body: EpisodeDownloadBody):
         raise HTTPException(404, f"Could not pick a suitable release for episode {body.episode}")
 
     # Queue in aria2c — put in per-anime subfolder
-    base_path = config.get("downloads", {}).get("save_path", "/downloads")
+    base_path = get_download_path()
     save_path = anime_save_path(base_path, name)
     link = best.magnet or best.torrent_url
     try:
@@ -441,6 +584,31 @@ def api_check_now():
     return {"ok": True, "message": "Immediate check triggered! Bot will poll shortly."}
 
 
+# ── Poster Scan Trigger ────────────────────────────────────────────────────────
+
+from main import scan_and_download_posters
+import threading
+
+@app.post("/api/scan-posters")
+def api_scan_posters():
+    """
+    Trigger a background scan of all download folders.
+    Downloads poster.jpg for any folder that is missing one.
+    """
+    config = load_config()
+    base_path = get_download_path()
+
+    def _run():
+        try:
+            scan_and_download_posters(base_path)
+        except Exception as e:
+            logger.error(f"Poster scan error: {e}")
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"ok": True, "message": f"Poster scan started for '{base_path}'. Check logs for progress."}
+
+
 # ── Download History ──────────────────────────────────────────────────────────
 
 @app.get("/api/history")
@@ -472,6 +640,24 @@ def api_get_history():
     return {"history": history}
 
 
+@app.delete("/api/history/{name}")
+def api_delete_history(name: str):
+    """Delete a specific anime's history log from the state."""
+    if state_manager.get_state(name):
+        state_manager.remove(name)
+        return {"ok": True, "message": f"History for '{name}' removed"}
+    raise HTTPException(404, f"No history found for '{name}'")
+
+
+@app.delete("/api/history")
+def api_delete_all_history():
+    """Clear all download history logs."""
+    state = state_manager.get_all()
+    for name in list(state.keys()):
+        state_manager.remove(name)
+    return {"ok": True, "message": "All history cleared"}
+
+
 def _container_to_host_path(container_path: str) -> str:
     """
     Convert an in-container /downloads/... path to the corresponding
@@ -484,7 +670,7 @@ def _container_to_host_path(container_path: str) -> str:
         
     config = load_config()
     host_dl = os.environ.get("HOST_DOWNLOAD_DIR", "/home/kazuha/Downloads")
-    container_dl = config.get("downloads", {}).get("save_path", "/downloads")
+    container_dl = get_download_path()
     if container_path.startswith(container_dl):
         return host_dl + container_path[len(container_dl):]
     return container_path

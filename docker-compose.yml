@@ -11,6 +11,9 @@ services:
       - ./config.yaml:/app/config.yaml
       - ./data:/app/data
       - ${DOWNLOAD_DIR:-./downloads}:/downloads
+    environment:
+      - TZ=${TZ:-Asia/Kolkata}
+      - DOWNLOAD_DIR=/downloads
     depends_on:
       - aria2
     networks:
@@ -30,6 +33,8 @@ services:
     restart: unless-stopped
     environment:
       - HOST_DOWNLOAD_DIR=${DOWNLOAD_DIR:-./downloads}
+      - DOWNLOAD_DIR=/downloads
+      - TZ=${TZ:-Asia/Kolkata}
     ports:
       - "5000:5000"                             # ← http://localhost:5000
     volumes:
@@ -49,6 +54,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
+      - TZ=${TZ:-Asia/Kolkata}
       - RPC_SECRET=akarisecret          # Change this if you want
       - DOWNLOAD_DIR=/downloads
       - DISK_CACHE=64M
